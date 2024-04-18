@@ -38,10 +38,12 @@ The available options include:
 
 - [ ] Fix bug when only 2 languages available
 - [ ] Create reusable functions inside `search_series()`
+- [ ] Rework selection menus with library
+- [ ] Add link option to arguments
 - [x] Skip downloading the binaries if already installed
 - [ ] Add TOR proxy option
-- [ ] Implement option to download whole seasons
-- [ ] Implement option to download multiple seasons
+- [ ] Implement option to download/ stream whole seasons
+- [ ] Implement option to download/ stream multiple seasons
 - [ ] Add Anime4K option to arguments
 - [x] Add search function to query series
 - [x] Implement option to choose between dub and sub and language
