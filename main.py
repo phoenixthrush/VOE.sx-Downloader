@@ -16,9 +16,9 @@ from urllib.parse import quote
 from urllib.request import urlopen, urlretrieve
 
 from bs4 import BeautifulSoup
-from yt_dlp import YoutubeDL
+from yt_dlp import YoutubeDL, DownloadError
 
-class Options:
+class Options: # pylint: disable=too-few-public-methods
     """
     Handles system arguments for options.
     """
@@ -53,8 +53,7 @@ class Options:
             link_only=args.link_only
         )
 
-
-class ContentProvider:
+class ContentProvider: # pylint: disable=too-few-public-methods
     """
     Represents a content provider for streaming anime episodes.
     
@@ -71,22 +70,20 @@ class ContentProvider:
         self.language = language
         self.link = f"https://aniworld.to{link}"
 
-
-class Series:
+class Series: # pylint: disable=too-few-public-methods
     """
     Represents a series of anime episodes.
 
     This class stores information about a series, including its name, episodes,
     filename, HLS link, and video height.
     """
-    def __init__(self, episodes, series_name, filename, hls_link, video_height):
+    def __init__(self, episodes, series_name, filename, hls_link):
         self.episodes = episodes
         self.series = series_name
         self.filename = filename
         self.hls_link = hls_link
-        self.video_height = video_height
 
-def get_content_providers(url_with_episode):
+def get_content_providers(url_with_episode): # pylint: disable=too-many-locals # :D
     """
     Fetches content providers for a given URL with episodes.
 
@@ -99,20 +96,16 @@ def get_content_providers(url_with_episode):
     providers_list = []
 
     with urlopen(url_with_episode) as response:
-        html_content = response.read().decode("utf-8")
+        html_content_inner = response.read().decode("utf-8")
 
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content_inner, "html.parser")
 
     if 'Deine Anfrage wurde als Spam erkannt.' in soup:
         print("Your IP-Address is blacklisted, please use a VPN or try later.")
+        shutdown()
 
     host_series_title = soup.find('div', class_='hostSeriesTitle')
-
-    if host_series_title:
-        series_title = host_series_title.text.strip()
-    else:
-        print("Could not fetch series title.")
-        shutdown()
+    series_title = host_series_title.text.strip() if host_series_title else None
 
     language_div = soup.find('div', class_='changeLanguageBox')
 
@@ -145,8 +138,7 @@ def get_content_providers(url_with_episode):
                     series_name=series_title,
                     filename=None,
                     hls_link=None,
-                    episodes=None,
-                    video_height=None
+                    episodes=None
                 )
             else:
                 print("No watchEpisode link found within generateInlinePlayer div.")
@@ -158,14 +150,24 @@ def get_content_providers(url_with_episode):
 
     return providers_list, series
 
-
 def get_stream_url(url, series):
+    """
+    Retrieves the HLS stream URL and related information from the provided URL.
+
+    Args:
+        url (str): The URL of the page containing the HLS stream information.
+        series (Series): An instance of the Series class representing the anime series.
+
+    Returns:
+        Series: An updated instance of the Series class with the HLS stream URL
+        and related information.
+    """
     with urlopen(url) as response:
-        html_content = response.read().decode("utf-8")
+        html_content_inner = response.read().decode("utf-8")
     if options.verbose:
         print("Stream URL Page: " + url)
 
-    soup = BeautifulSoup(html_content, "html.parser")
+    soup = BeautifulSoup(html_content_inner, "html.parser")
     title = soup.find("meta", {"name": "og:title", "content": True})
     if title:
         filename = title["content"]
@@ -175,10 +177,7 @@ def get_stream_url(url, series):
         filename = None
 
     pattern = r"'hls': '(.*?)'"
-    height_pattern = r"'video_height': (\d+),"
-
-    match = search(pattern, html_content)
-    height_match = search(height_pattern, html_content)
+    match = search(pattern, html_content_inner)
 
     if match:
         hls_link = match.group(1)
@@ -186,35 +185,51 @@ def get_stream_url(url, series):
         print("HLS link not found.")
         shutdown()
 
-    if height_match:
-        video_height = int(height_match.group(1))
-    else:
-        video_height = None
-
     series.filename = filename
     series.hls_link = hls_link
-    series.video_height = video_height
 
     return series
 
 def play_hls_link(hls_link):
+    """
+    Plays the HLS link using the MPV media player.
+
+    Args:
+        hls_link (str): The HLS link to play.
+
+    Returns:
+        None
+    """
     try:
         if options.link_only:
             print(hls_link)
             shutdown()
         else:
-            system(f"./mpv/mpv.app/Contents/MacOS/mpv \"{hls_link}\" --quiet --really-quiet")
-    except Exception as e:
+            system(
+                f"./mpv/mpv.app/Contents/MacOS/mpv \"{hls_link}\" "
+                f"--quiet --really-quiet --title=\"{updated_series.series}\""
+            )
+    except FileNotFoundError as e:
         print("Could not execute mpv (mpv/mpv.app/Contents/MacOS/mpv): ", e)
 
 def download_with_ytdlp(url, series):
+    """
+    Downloads the video using youtube-dl.
+
+    Args:
+        url (str): The URL of the video to download.
+        series (Series): An instance of the Series class representing the anime series.
+
+    Returns:
+        None
+    """
     if options.link_only:
         print(url)
         shutdown()
     try:
-        makedirs(f"Downloads/{series.series}", exist_ok = True)
-    except Exception as e:
-        print("Error:", e)
+        makedirs(f"Downloads/{series.series}", exist_ok=True)
+    except FileExistsError as e:
+        print("Error creating directory:", e)
 
     try:
         yt_opts = {
@@ -225,7 +240,7 @@ def download_with_ytdlp(url, series):
         }
         ytdlp = YoutubeDL(yt_opts)
         ytdlp.download([url])
-    except Exception as e:
+    except DownloadError as e:
         print("Could not download using yt-dlp:", e)
 
 def calculate_checksum(file_path, checksum):
@@ -435,7 +450,7 @@ def get_episode_links(selected_link):
     Returns:
         list: A list of episode links.
     """
-    episodes_input = input("Enter the season and episode number(s) (e.g., S1E1 or S1E1 S1E2 S1E3): ")
+    episodes_input = input("Enter the season and episode number(s) (e.g., S1E1 or S1E1 S1E2): ")
     if episodes_input == "":
         episodes_input = "S1E1"
     episodes_list = episodes_input.split()
@@ -443,7 +458,10 @@ def get_episode_links(selected_link):
     for episode in episodes_list:
         season_num = episode.split('S')[1].split('E')[0]
         episode_num = episode.split('E')[1]
-        link = f"https://aniworld.to/anime/stream/{selected_link}/staffel-{season_num}/episode-{episode_num}"
+        link = (
+            f"https://aniworld.to/anime/stream/{selected_link}/"
+            f"staffel-{season_num}/episode-{episode_num}"
+        )
         if options.verbose:
             print(link)
         episode_links.append(link)
@@ -482,34 +500,28 @@ if __name__ == "__main__":
     options = Options.from_args()
 
     try:
-        episode_links, html_content = search_series()
-        url_with_episode = episode_links[0] # debug
+        episode_links_outer, html_content = search_series()
+        url_with_episode_debug = episode_links_outer[0]  # Debug
 
-        providers, series = get_content_providers(url_with_episode)
-
-        """ # all links
-        for provider in providers:
-            print("Provider:", provider.provider)
-            print("Language:", provider.language)
-            print("Link:", provider.link)
-            print()
-        """
+        providers, initial_series = get_content_providers(url_with_episode_debug)
 
         provider_languages = [
             provider.language for provider in providers if provider.provider == "VOE"
         ]
         selected_language = select_language(provider_languages)
 
-        for provider in providers:
-            if provider.provider == "VOE" and provider.language == selected_language:
-                series = get_stream_url(provider.link, series)
+        updated_series = initial_series
+
+        for provider_outer in providers:
+            if provider_outer.provider == "VOE" and provider_outer.language == selected_language:
+                updated_series = get_stream_url(provider_outer.link, updated_series)
                 if not options.watch and not options.download:
                     options.download = True
                 if options.watch and not options.download:
                     get_mpv()
-                    play_hls_link(series.hls_link)
+                    play_hls_link(updated_series.hls_link)
                 elif options.download and not options.watch:
-                    download_with_ytdlp(series.hls_link, series)
+                    download_with_ytdlp(updated_series.hls_link, updated_series)
 
     except KeyboardInterrupt:
         print()
